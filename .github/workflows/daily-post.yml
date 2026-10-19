@@ -1,0 +1,40 @@
+name: Daily Quran Reel Automation
+
+on:
+  schedule:
+    - cron: "0 12 * * *" # التشغيل يومياً الساعة 12:00 بتوقيت UTC
+  workflow_dispatch: # زر لتشغيل السكربت يدوياً للتجربة
+
+jobs:
+  build_and_post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # إعطاء صلاحية لتحديث ملف رقم الآية
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22"
+
+      - name: Install System Dependencies (FFmpeg)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install NPM Packages
+        run: npm install
+
+      - name: Install Puppeteer Browsers
+        run: npx puppeteer browsers install chrome
+
+      - name: Run Automation Script
+        run: node index.js
+
+      - name: Commit and Push Updated Ayah Number
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add current_ayah_index.txt
+          git commit -m "Update current_ayah_index.txt for tomorrow [skip ci]" || echo "No changes to commit"
+          git push
