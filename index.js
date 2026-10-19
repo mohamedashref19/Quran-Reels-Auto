@@ -249,6 +249,73 @@ async function createFinalMedia(
 }
 
 // ==========================================
+// 5.5 رفع الفيديو (مع بدائل تلقائية لو خدمة رفضت الطلب)
+// ==========================================
+const UPLOAD_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+const uploadProviders = [
+  {
+    name: "catbox.moe",
+    url: "https://catbox.moe/user/api.php",
+    fields: { reqtype: "fileupload" },
+    fileField: "fileToUpload",
+  },
+  {
+    name: "litterbox (72h)",
+    url: "https://litterbox.catbox.moe/resources/internals/api.php",
+    fields: { reqtype: "fileupload", time: "72h" },
+    fileField: "fileToUpload",
+  },
+  {
+    name: "0x0.st",
+    url: "https://0x0.st",
+    fields: {},
+    fileField: "file",
+  },
+];
+
+async function uploadVideo(filePath) {
+  const errors = [];
+  for (const provider of uploadProviders) {
+    try {
+      console.log(`   ↗️ محاولة الرفع على: ${provider.name}`);
+      // لازم FormData جديد (وstream جديد) لكل محاولة
+      const form = new FormData();
+      for (const [key, value] of Object.entries(provider.fields)) {
+        form.append(key, value);
+      }
+      form.append(provider.fileField, fs.createReadStream(filePath));
+
+      const res = await axios.post(provider.url, form, {
+        headers: { ...form.getHeaders(), "User-Agent": UPLOAD_USER_AGENT },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 180000,
+      });
+
+      const url = String(res.data).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        throw new Error(
+          `رد غير متوقع من ${provider.name}: ${url.slice(0, 200)}`,
+        );
+      }
+      return url;
+    } catch (err) {
+      const status = err.response ? err.response.status : "no-response";
+      const body = err.response
+        ? String(err.response.data).slice(0, 300)
+        : err.message;
+      console.error(
+        `   ⚠️ فشل ${provider.name} | status: ${status} | رد السيرفر: ${body}`,
+      );
+      errors.push(`${provider.name}: ${status}`);
+    }
+  }
+  throw new Error(`فشل الرفع على كل الخدمات (${errors.join(" | ")})`);
+}
+
+// ==========================================
 // 6. تشغيل الدورة بالكامل
 // ==========================================
 async function runAutomation(currentAyahNumber) {
@@ -284,21 +351,7 @@ async function runAutomation(currentAyahNumber) {
     );
 
     console.log("6. جاري رفع الفيديو للحصول على رابط مباشر...");
-    const uploadForm = new FormData();
-    uploadForm.append("reqtype", "fileupload");
-    uploadForm.append("fileToUpload", fs.createReadStream(finalVideo));
-
-    const uploadRes = await axios.post(
-      "https://catbox.moe/user/api.php",
-      uploadForm,
-      {
-        headers: uploadForm.getHeaders(),
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-      },
-    );
-
-    const directUrl = uploadRes.data.trim();
+    const directUrl = await uploadVideo(finalVideo);
     console.log("✅ تم الرفع، الرابط:", directUrl);
 
     console.log("7. جاري إرسال البيانات إلى Make.com...");
