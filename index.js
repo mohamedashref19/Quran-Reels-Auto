@@ -490,31 +490,38 @@ async function runAutomation(currentAyahNumber, rotationIndex = 0) {
     console.log("✅ تم الرفع، الرابط:", directUrl);
 
     console.log("7. جاري إرسال البيانات إلى Make.com...");
-    const webhookForm = new FormData();
-    webhookForm.append("videoUrl", directUrl);
-    // توكن سري: Make بيفلتر على أساسه، فلو حد عرف رابط الـ webhook لوحده ما يقدرش
-    // يستخدمه من غير التوكن ده. التوكن بيتقرأ من GitHub Secret مش من الكود.
-    if (process.env.MAKE_WEBHOOK_SECRET) {
-      webhookForm.append("secret", process.env.MAKE_WEBHOOK_SECRET);
-    } else {
-      console.warn(
-        "   ⚠️ MAKE_WEBHOOK_SECRET مش موجود، الـ webhook مش محمي بتوكن.",
-      );
-    }
     const captionText = `﴿ ${ayahInfo.surahName} - آية ${ayahInfo.numberInSurah} ﴾\n\nتطبيق اقرأ - رفيقك لختم القرآن 📖\n✨ حمل التطبيق الآن مجاناً من الرابط في البايو ✨\n\n#قرآن #تطبيق_اقرأ #تلاوة #قرآن_كريم`;
-    webhookForm.append("caption", captionText);
 
     // رابط منصة Make بيتقرأ من GitHub Secret (MAKE_WEBHOOK_URL) مش مكتوب في الكود،
     // لأن الريبو Public وأي حد كان هيقدر يشوف الرابط ويبعتله.
-    const webhookUrl = process.env.MAKE_WEBHOOK_URL;
+    const webhookUrl = (process.env.MAKE_WEBHOOK_URL || "").trim();
     if (!webhookUrl) {
       throw new Error(
         "المتغير MAKE_WEBHOOK_URL مش موجود. ضيفه في GitHub Secrets.",
       );
     }
-    await axios.post(webhookUrl, webhookForm, {
-      headers: webhookForm.getHeaders(),
+
+    // التعديل: بنبعت JSON بدل multipart/form-data. وصل لـ Make طلب حجمه 789 بايت لكن Make
+    // طلّع Bundle فاضي (مفيش حقول)، يعني الـ parsing للـ multipart فشل عنده. الـ JSON
+    // هو الشكل القياسي للـ Custom webhook وبيتبعت بـ Content-Length واضح.
+    const payload = { videoUrl: directUrl, caption: captionText };
+    // توكن سري: Make بيفلتر على أساسه، فلو حد عرف رابط الـ webhook لوحده ما يقدرش
+    // يستخدمه من غير التوكن ده. التوكن بيتقرأ من GitHub Secret مش من الكود.
+    if (process.env.MAKE_WEBHOOK_SECRET) {
+      payload.secret = process.env.MAKE_WEBHOOK_SECRET.trim();
+    } else {
+      console.warn(
+        "   ⚠️ MAKE_WEBHOOK_SECRET مش موجود، الـ webhook مش محمي بتوكن.",
+      );
+    }
+
+    const webhookRes = await axios.post(webhookUrl, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 60000,
     });
+    console.log(
+      `   📨 رد Make: ${webhookRes.status} ${String(webhookRes.data).slice(0, 100)}`,
+    );
     console.log("✅ تم إرسال الرابط إلى Make بنجاح!");
 
     // تنظيف الملفات المؤقتة
