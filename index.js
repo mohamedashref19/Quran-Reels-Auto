@@ -175,7 +175,10 @@ async function createFinalMedia(
   return new Promise((resolve, reject) => {
     ffmpeg()
       .input(videoInput)
-      .inputOptions(["-stream_loop", "-1"])
+      // التعديل 1: نحدد مدة قراءة الفيديو المتكرر كـ input option بدل ما نعتمد على -t في الخرج فقط.
+      // كده الفيديو بينتهي طبيعياً (EOF نظيف) بدل ما FFmpeg يقتل الـ demuxer thread بالقوة
+      // وده اللي كان بيطلّع "Operation not permitted" ويرجّع exit code 255.
+      .inputOptions(["-stream_loop", "-1", "-t", totalDuration])
       .input(ayahImage)
       .input(outroImage)
       .input(audioInput)
@@ -194,11 +197,27 @@ async function createFinalMedia(
         "-c:a aac",
         "-b:a 192k",
         "-pix_fmt yuv420p",
-        "-y", // السماح بالكتابة الإجبارية للملف الناتج وتجاوز قيود الصلاحيات
+        "-movflags +faststart",
+        "-y", // السماح بالكتابة الإجبارية للملف الناتج
       ])
       .save(videoOutput)
       .on("end", () => resolve())
-      .on("error", (err, stdout, stderr) => {
+      .on("error", async (err, stdout, stderr) => {
+        // التعديل 2 (شبكة أمان): في بعض إصدارات FFmpeg 7.x بيرجّع exit code 255
+        // حتى لو الفيديو اتكتب كامل. فنتأكد من الملف الناتج الأول قبل ما نعتبرها فشل.
+        try {
+          if (fs.existsSync(videoOutput) && fs.statSync(videoOutput).size > 0) {
+            const outDuration = await getAudioDuration(videoOutput);
+            if (outDuration >= parseFloat(totalDuration) - 0.5) {
+              console.warn(
+                `⚠️ FFmpeg رجّع خطأ (${err.message}) لكن الفيديو الناتج سليم (${outDuration.toFixed(2)} ثانية). هنكمل.`,
+              );
+              return resolve();
+            }
+          }
+        } catch (probeErr) {
+          // لو فشل فحص الملف نكمل للرفض الطبيعي
+        }
         console.error("\n❌ تفاصيل خطأ FFmpeg الداخلي:\n", stderr);
         reject(err);
       });
