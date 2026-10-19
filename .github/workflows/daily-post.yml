@@ -38,4 +38,5 @@ jobs:
           touch current_ayah_index.txt
           git add current_ayah_index.txt
           git commit -m "Update current_ayah_index.txt for tomorrow [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
           git push
