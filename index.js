@@ -310,62 +310,117 @@ async function createFinalMedia(
 const UPLOAD_USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
-const uploadProviders = [
-  {
-    name: "catbox.moe",
-    url: "https://catbox.moe/user/api.php",
-    fields: { reqtype: "fileupload" },
-    fileField: "fileToUpload",
-  },
-  {
-    name: "litterbox (72h)",
-    url: "https://litterbox.catbox.moe/resources/internals/api.php",
-    fields: { reqtype: "fileupload", time: "72h" },
-    fileField: "fileToUpload",
-  },
-  {
-    name: "0x0.st",
-    url: "https://0x0.st",
-    fields: {},
-    fileField: "file",
-  },
-];
+// الخدمات المجانية المجهولة (catbox / litterbox / 0x0.st) بتحظر أو بتوقف الرفع من
+// سيرفرات GitHub Actions كتير. الخيار الموثوق هو Cloudinary (حساب مجاني): لو ضفت
+// المتغيرين CLOUDINARY_CLOUD_NAME و CLOUDINARY_UPLOAD_PRESET هو اللي بيتجرب الأول.
+function buildUploadProviders() {
+  const providers = [];
+
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const preset = process.env.CLOUDINARY_UPLOAD_PRESET;
+  if (cloudName && preset) {
+    providers.push({
+      name: "cloudinary",
+      url: `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
+      fields: { upload_preset: preset },
+      fileField: "file",
+      parse: (data) => data.secure_url,
+    });
+  } else {
+    console.log(
+      "   ℹ️ Cloudinary مش مفعّل (المتغيرات غير موجودة)، هنستخدم الخدمات المجانية.",
+    );
+  }
+
+  providers.push(
+    {
+      name: "litterbox (72h)",
+      url: "https://litterbox.catbox.moe/resources/internals/api.php",
+      fields: { reqtype: "fileupload", time: "72h" },
+      fileField: "fileToUpload",
+      parse: (data) => String(data).trim(),
+    },
+    {
+      name: "tmpfiles.org",
+      url: "https://tmpfiles.org/api/v1/upload",
+      fields: {},
+      fileField: "file",
+      // الرابط اللي بيرجع صفحة عرض، ولازم نحوله لرابط تحميل مباشر (/dl/)
+      parse: (data) =>
+        String(data && data.data && data.data.url).replace(
+          "tmpfiles.org/",
+          "tmpfiles.org/dl/",
+        ),
+    },
+    {
+      name: "uguu.se",
+      url: "https://uguu.se/upload",
+      fields: {},
+      fileField: "files[]",
+      parse: (data) => data && data.files && data.files[0] && data.files[0].url,
+    },
+    {
+      name: "catbox.moe",
+      url: "https://catbox.moe/user/api.php",
+      fields: { reqtype: "fileupload" },
+      fileField: "fileToUpload",
+      parse: (data) => String(data).trim(),
+    },
+  );
+  return providers;
+}
+
+async function tryUpload(provider, filePath) {
+  // لازم FormData جديد (وstream جديد) لكل محاولة
+  const form = new FormData();
+  for (const [key, value] of Object.entries(provider.fields)) {
+    form.append(key, value);
+  }
+  form.append(provider.fileField, fs.createReadStream(filePath));
+
+  const res = await axios.post(provider.url, form, {
+    headers: { ...form.getHeaders(), "User-Agent": UPLOAD_USER_AGENT },
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    timeout: 180000,
+  });
+
+  const url = provider.parse(res.data);
+  if (!/^https?:\/\//i.test(String(url))) {
+    throw new Error(
+      `رد غير متوقع من ${provider.name}: ${String(url).slice(0, 200)}`,
+    );
+  }
+  return url;
+}
 
 async function uploadVideo(filePath) {
   const errors = [];
-  for (const provider of uploadProviders) {
-    try {
-      console.log(`   ↗️ محاولة الرفع على: ${provider.name}`);
-      // لازم FormData جديد (وstream جديد) لكل محاولة
-      const form = new FormData();
-      for (const [key, value] of Object.entries(provider.fields)) {
-        form.append(key, value);
-      }
-      form.append(provider.fileField, fs.createReadStream(filePath));
-
-      const res = await axios.post(provider.url, form, {
-        headers: { ...form.getHeaders(), "User-Agent": UPLOAD_USER_AGENT },
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-        timeout: 180000,
-      });
-
-      const url = String(res.data).trim();
-      if (!/^https?:\/\//i.test(url)) {
-        throw new Error(
-          `رد غير متوقع من ${provider.name}: ${url.slice(0, 200)}`,
+  for (const provider of buildUploadProviders()) {
+    // محاولتين لكل خدمة (أخطاء 5xx غالباً مؤقتة)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`   ↗️ محاولة الرفع على: ${provider.name} (${attempt}/2)`);
+        return await tryUpload(provider, filePath);
+      } catch (err) {
+        const status = err.response ? err.response.status : "no-response";
+        const body = err.response
+          ? String(
+              typeof err.response.data === "string"
+                ? err.response.data
+                : JSON.stringify(err.response.data),
+            ).slice(0, 200)
+          : err.message;
+        console.error(
+          `   ⚠️ فشل ${provider.name} | status: ${status} | رد السيرفر: ${body}`,
         );
+        const retryable = typeof status === "number" ? status >= 500 : true;
+        if (attempt === 2 || !retryable) {
+          errors.push(`${provider.name}: ${status}`);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
       }
-      return url;
-    } catch (err) {
-      const status = err.response ? err.response.status : "no-response";
-      const body = err.response
-        ? String(err.response.data).slice(0, 300)
-        : err.message;
-      console.error(
-        `   ⚠️ فشل ${provider.name} | status: ${status} | رد السيرفر: ${body}`,
-      );
-      errors.push(`${provider.name}: ${status}`);
     }
   }
   throw new Error(`فشل الرفع على كل الخدمات (${errors.join(" | ")})`);

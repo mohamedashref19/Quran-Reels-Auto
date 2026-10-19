@@ -29,6 +29,9 @@ jobs:
         run: npx puppeteer browsers install chrome
 
       - name: Run Automation Script
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_UPLOAD_PRESET: ${{ secrets.CLOUDINARY_UPLOAD_PRESET }}
         run: node index.js
 
       - name: Commit and Push Updated Ayah Number
