@@ -172,13 +172,26 @@ async function createFinalMedia(
     `5. جاري المونتاج.. (مدة الآية: ${safeDuration} ثانية | مدة النهاية: 2 ثانية)`,
   );
 
+  // التعديل 1: بدل -stream_loop (اللي بيفشل في الرجوع لأول الفيديو في FFmpeg 7.x
+  // وبيقطع الفيديو عند نهاية أول لفة)، بنكرر الفيديو بقائمة concat.
+  // كده مفيش seek خالص والفيديو بيكمل لحد ما الصوت يخلص.
+  const videoDuration = await getAudioDuration(videoInput);
+  const loops = Math.max(
+    1,
+    Math.ceil(parseFloat(totalDuration) / videoDuration),
+  );
+  console.log(
+    `🔁 مدة الفيديو الخلفي: ${videoDuration.toFixed(2)} ثانية | هيتكرر ${loops} مرة`,
+  );
+
+  const listPath = path.join(__dirname, "loop_list.txt");
+  const escapedPath = videoInput.replace(/'/g, "'\\''");
+  fs.writeFileSync(listPath, `file '${escapedPath}'\n`.repeat(loops));
+
   return new Promise((resolve, reject) => {
     ffmpeg()
-      .input(videoInput)
-      // التعديل 1: نحدد مدة قراءة الفيديو المتكرر كـ input option بدل ما نعتمد على -t في الخرج فقط.
-      // كده الفيديو بينتهي طبيعياً (EOF نظيف) بدل ما FFmpeg يقتل الـ demuxer thread بالقوة
-      // وده اللي كان بيطلّع "Operation not permitted" ويرجّع exit code 255.
-      .inputOptions(["-stream_loop", "-1", "-t", totalDuration])
+      .input(listPath)
+      .inputOptions(["-f", "concat", "-safe", "0"])
       .input(ayahImage)
       .input(outroImage)
       .input(audioInput)
@@ -192,19 +205,27 @@ async function createFinalMedia(
         "-map 3:a",
         `-t ${totalDuration}`,
         "-c:v libx264",
-        "-preset ultrafast", // تسريع المونتاج لأقصى درجة لتجنب التايم أوت
-        "-crf 28",
+        // التعديل 2: preset أبطأ شوية + سقف للـ bitrate عشان حجم الملف.
+        // قبل كده كان 20+ ميجابت/ثانية (38MB لـ 15 ثانية) ومع آية الكرسي كان هيعدي 100MB.
+        "-preset veryfast",
+        "-crf 26",
+        "-maxrate 6M",
+        "-bufsize 12M",
+        "-r 30",
         "-c:a aac",
         "-b:a 192k",
         "-pix_fmt yuv420p",
         "-movflags +faststart",
-        "-y", // السماح بالكتابة الإجبارية للملف الناتج
+        "-y",
       ])
       .save(videoOutput)
-      .on("end", () => resolve())
+      .on("end", () => {
+        if (fs.existsSync(listPath)) fs.unlinkSync(listPath);
+        resolve();
+      })
       .on("error", async (err, stdout, stderr) => {
-        // التعديل 2 (شبكة أمان): في بعض إصدارات FFmpeg 7.x بيرجّع exit code 255
-        // حتى لو الفيديو اتكتب كامل. فنتأكد من الملف الناتج الأول قبل ما نعتبرها فشل.
+        if (fs.existsSync(listPath)) fs.unlinkSync(listPath);
+        // شبكة أمان: لو FFmpeg رجّع كود خطأ لكن الملف كامل بالمدة المطلوبة نكمل.
         try {
           if (fs.existsSync(videoOutput) && fs.statSync(videoOutput).size > 0) {
             const outDuration = await getAudioDuration(videoOutput);
@@ -214,6 +235,9 @@ async function createFinalMedia(
               );
               return resolve();
             }
+            console.error(
+              `❌ الفيديو الناتج ناقص: ${outDuration.toFixed(2)} ثانية بدل ${totalDuration}`,
+            );
           }
         } catch (probeErr) {
           // لو فشل فحص الملف نكمل للرفض الطبيعي
@@ -380,6 +404,9 @@ async function runDailyTask() {
   if (success) {
     updateAyahIndex(currentIndex);
     console.log(`✅ تم إنجاز النشر، وحفظ المؤشر لليوم التالي بنجاح تام.`);
+  } else {
+    // التعديل 3: خلي الـ workflow يبان أحمر لما السكربت يفشل
+    process.exitCode = 1;
   }
 }
 
