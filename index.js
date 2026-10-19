@@ -481,12 +481,26 @@ async function runAutomation(currentAyahNumber) {
     console.log("7. جاري إرسال البيانات إلى Make.com...");
     const webhookForm = new FormData();
     webhookForm.append("videoUrl", directUrl);
+    // توكن سري: Make بيفلتر على أساسه، فلو حد عرف رابط الـ webhook لوحده ما يقدرش
+    // يستخدمه من غير التوكن ده. التوكن بيتقرأ من GitHub Secret مش من الكود.
+    if (process.env.MAKE_WEBHOOK_SECRET) {
+      webhookForm.append("secret", process.env.MAKE_WEBHOOK_SECRET);
+    } else {
+      console.warn(
+        "   ⚠️ MAKE_WEBHOOK_SECRET مش موجود، الـ webhook مش محمي بتوكن.",
+      );
+    }
     const captionText = `﴿ ${ayahInfo.surahName} - آية ${ayahInfo.numberInSurah} ﴾\n\nتطبيق اقرأ - رفيقك لختم القرآن 📖\n✨ حمل التطبيق الآن مجاناً من الرابط في البايو ✨\n\n#قرآن #تطبيق_اقرأ #تلاوة #قرآن_كريم`;
     webhookForm.append("caption", captionText);
 
-    // رابط منصة Make الخاص بك
-    const webhookUrl =
-      "https://hook.eu1.make.com/yharpxmxn0efm9q1ae3chclhzddncqbb";
+    // رابط منصة Make بيتقرأ من GitHub Secret (MAKE_WEBHOOK_URL) مش مكتوب في الكود،
+    // لأن الريبو Public وأي حد كان هيقدر يشوف الرابط ويبعتله.
+    const webhookUrl = process.env.MAKE_WEBHOOK_URL;
+    if (!webhookUrl) {
+      throw new Error(
+        "المتغير MAKE_WEBHOOK_URL مش موجود. ضيفه في GitHub Secrets.",
+      );
+    }
     await axios.post(webhookUrl, webhookForm, {
       headers: webhookForm.getHeaders(),
     });
