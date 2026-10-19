@@ -165,25 +165,31 @@ async function createFinalMedia(
   audioDuration,
   videoOutput,
 ) {
+  // 1. تقريب الوقت لرقمين عشريين فقط لتجنب أخطاء FFmpeg
+  const safeDuration = parseFloat(audioDuration).toFixed(2);
+  const totalDuration = (parseFloat(audioDuration) + 2).toFixed(2);
+
   console.log(
-    `5. جاري المونتاج.. (مدة الآية: ${audioDuration} ثانية | مدة النهاية: 2 ثانية)`,
+    `5. جاري المونتاج.. (مدة الآية: ${safeDuration} ثانية | مدة النهاية: 2 ثانية)`,
   );
+
   return new Promise((resolve, reject) => {
     ffmpeg()
       .input(videoInput)
-      .inputOptions(["-stream_loop -1"])
+      // 2. تصحيح طريقة كتابة أمر التكرار برمجياً
+      .inputOptions(["-stream_loop", "-1"])
       .input(ayahImage)
       .input(outroImage)
       .input(audioInput)
       .complexFilter([
         "[0:v]eq=brightness=-0.3:contrast=1.1[bg]",
-        `[bg][1:v]overlay=0:0:enable='between(t,0,${audioDuration})'[v1]`,
-        `[v1][2:v]overlay=0:0:enable='between(t,${audioDuration},${audioDuration + 2})'[outv]`,
+        `[bg][1:v]overlay=0:0:enable='between(t,0,${safeDuration})'[v1]`,
+        `[v1][2:v]overlay=0:0:enable='between(t,${safeDuration},${totalDuration})'[outv]`,
       ])
       .outputOptions([
         "-map [outv]",
         "-map 3:a",
-        `-t ${audioDuration + 2}`,
+        `-t ${totalDuration}`,
         "-c:v libx264",
         "-preset fast",
         "-crf 28",
@@ -193,7 +199,11 @@ async function createFinalMedia(
       ])
       .save(videoOutput)
       .on("end", () => resolve())
-      .on("error", (err) => reject(err));
+      .on("error", (err, stdout, stderr) => {
+        // 3. طباعة الخطأ الجذري من سيرفرات FFmpeg في حال حدوث أي مشكلة مستقبلاً
+        console.error("\n❌ تفاصيل خطأ FFmpeg الداخلي:\n", stderr);
+        reject(err);
+      });
   });
 }
 
