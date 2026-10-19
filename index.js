@@ -155,7 +155,7 @@ function getAudioDuration(audioPath) {
 }
 
 // ==========================================
-// 5. المونتاج الذكي والمزامنة
+// 5. المونتاج الذكي والمزامنة (النسخة المستقرة على السيرفرات)
 // ==========================================
 async function createFinalMedia(
   videoInput,
@@ -165,7 +165,6 @@ async function createFinalMedia(
   audioDuration,
   videoOutput,
 ) {
-  // 1. تقريب الوقت لرقمين عشريين فقط لتجنب أخطاء FFmpeg
   const safeDuration = parseFloat(audioDuration).toFixed(2);
   const totalDuration = (parseFloat(audioDuration) + 2).toFixed(2);
 
@@ -176,7 +175,6 @@ async function createFinalMedia(
   return new Promise((resolve, reject) => {
     ffmpeg()
       .input(videoInput)
-      // 2. تصحيح طريقة كتابة أمر التكرار برمجياً
       .inputOptions(["-stream_loop", "-1"])
       .input(ayahImage)
       .input(outroImage)
@@ -191,16 +189,16 @@ async function createFinalMedia(
         "-map 3:a",
         `-t ${totalDuration}`,
         "-c:v libx264",
-        "-preset fast",
+        "-preset ultrafast", // تسريع المونتاج لأقصى درجة لتجنب التايم أوت
         "-crf 28",
         "-c:a aac",
         "-b:a 192k",
         "-pix_fmt yuv420p",
+        "-y", // السماح بالكتابة الإجبارية للملف الناتج وتجاوز قيود الصلاحيات
       ])
       .save(videoOutput)
       .on("end", () => resolve())
       .on("error", (err, stdout, stderr) => {
-        // 3. طباعة الخطأ الجذري من سيرفرات FFmpeg في حال حدوث أي مشكلة مستقبلاً
         console.error("\n❌ تفاصيل خطأ FFmpeg الداخلي:\n", stderr);
         reject(err);
       });
