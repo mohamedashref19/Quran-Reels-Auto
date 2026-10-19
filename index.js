@@ -12,6 +12,19 @@ ffmpeg.setFfmpegPath(ffmpegStatic);
 ffmpeg.setFfprobePath(ffprobeStatic.path);
 
 // ==========================================
+// 0. تنظيف نص الآية من علامات الوقف
+// ==========================================
+// علامات الوقف القرآنية (ۖ ۗ ۘ ۙ ۚ ۛ) = U+06D6 إلى U+06DB، وعلامة الحزب ۞ = U+06DE.
+// دي بتظهر مربعات (▯) في الصورة، فبنشيلها ونوحّد المسافات اللي بتتبقى مكانها.
+// بنسيب باقي التشكيل والعلامات الأساسية زي ما هي.
+function cleanAyahText(text) {
+  return String(text)
+    .replace(/[\u06D6-\u06DB\u06DE]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// ==========================================
 // 1. جلب بيانات الآية
 // ==========================================
 async function getAyahData(globalAyahNumber, retries = 3) {
@@ -29,7 +42,7 @@ async function getAyahData(globalAyahNumber, retries = 3) {
     );
     const data = response.data.data;
     return {
-      text: data.text,
+      text: cleanAyahText(data.text),
       surahName: data.surah.name,
       numberInSurah: data.numberInSurah,
       audioUrl: data.audio,
