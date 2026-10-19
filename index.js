@@ -572,42 +572,45 @@ const curatedAyahs = [
 // قمنا بتغيير اسم الملف ليتناسب مع الاستراتيجية الجديدة (يحفظ الترتيب من 0 إلى 29)
 const ayahTrackerFile = path.join(__dirname, "current_ayah_index.txt");
 
-function getNextAyahIndex() {
+// التعديل: الملف بقى بيخزن "عداد أيام" بيزيد على طول ومش بيرجع للصفر (نفس اسم الملف
+// عشان الـ workflow). منه بنحسب:
+//   - ترتيب الآية في الدورة = العداد % 30
+//   - رقم الدورة            = العداد / 30 (بدون كسور)
+// الأرقام القديمة (0 لـ 29) شغالة زي ما هي، لأنها بتتفسر كأول دورة.
+function getDayCounter() {
   if (fs.existsSync(ayahTrackerFile)) {
-    let currentIndex = parseInt(fs.readFileSync(ayahTrackerFile, "utf-8"));
-    // إذا وصل الكود لآخر آية في المصفوفة، يعيد نفسه لليوم الأول (رقم 0)
-    if (currentIndex >= curatedAyahs.length || isNaN(currentIndex)) {
-      return 0;
-    }
-    return currentIndex;
+    const counter = parseInt(fs.readFileSync(ayahTrackerFile, "utf-8"));
+    if (!isNaN(counter) && counter >= 0) return counter;
   }
   return 0;
 }
 
-function updateAyahIndex(currentIndex) {
-  let nextIndex = currentIndex + 1;
-  // إعادة ضبط العداد إذا انتهينا من الـ 30 آية
-  if (nextIndex >= curatedAyahs.length) {
-    nextIndex = 0;
-  }
-  fs.writeFileSync(ayahTrackerFile, nextIndex.toString());
+function saveDayCounter(counter) {
+  fs.writeFileSync(ayahTrackerFile, (counter + 1).toString());
 }
 
 async function runDailyTask() {
-  const currentIndex = getNextAyahIndex();
-  const globalAyahNumber = curatedAyahs[currentIndex];
+  const dayCounter = getDayCounter();
+  const ayahIndex = dayCounter % curatedAyahs.length;
+  const cycle = Math.floor(dayCounter / curatedAyahs.length);
+  const globalAyahNumber = curatedAyahs[ayahIndex];
+
+  // رقم التدوير للفيديو والقارئ: بنضيف رقم الدورة على العداد، فكل دورة جديدة بتزيح
+  // التوزيع، والآية اللي أخدت فيديو وشيخ معينين في دورة بتاخد غيرهم في الدورة اللي بعدها.
+  // والأيام المتتالية بتفضل مختلفة لأن الفرق بينهم دايماً 1 (أو 2 عند بداية دورة جديدة).
+  const rotationIndex = dayCounter + cycle;
 
   console.log(
-    `\n🚀 بدء دورة النشر لليوم رقم: ${currentIndex + 1} من أصل 30 يوم.`,
+    `\n🚀 بدء دورة النشر: اليوم ${ayahIndex + 1} من ${curatedAyahs.length} | الدورة رقم ${cycle + 1} | العداد الكلي: ${dayCounter}`,
   );
   console.log(`📖 الآية المختارة ترتيبها في المصحف: ${globalAyahNumber}`);
 
-  const success = await runAutomation(globalAyahNumber, currentIndex);
+  const success = await runAutomation(globalAyahNumber, rotationIndex);
   if (success) {
-    updateAyahIndex(currentIndex);
+    saveDayCounter(dayCounter);
     console.log(`✅ تم إنجاز النشر، وحفظ المؤشر لليوم التالي بنجاح تام.`);
   } else {
-    // التعديل 3: خلي الـ workflow يبان أحمر لما السكربت يفشل
+    // خلي الـ workflow يبان أحمر لما السكربت يفشل
     process.exitCode = 1;
   }
 }
