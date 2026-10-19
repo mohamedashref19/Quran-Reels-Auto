@@ -27,7 +27,7 @@ function cleanAyahText(text) {
 // ==========================================
 // 1. جلب بيانات الآية
 // ==========================================
-async function getAyahData(globalAyahNumber, retries = 3) {
+async function getAyahData(globalAyahNumber, reciterIndex = 0, retries = 3) {
   try {
     const reciters = [
       "ar.alafasy",
@@ -36,9 +36,12 @@ async function getAyahData(globalAyahNumber, retries = 3) {
       "ar.husary",
       "ar.minshawi",
     ];
-    const randomReciter = reciters[Math.floor(Math.random() * reciters.length)];
+    // التعديل: القارئ بيتحدد بالترتيب حسب رقم اليوم بدل Math.random، فكل يوم شيخ مختلف
+    // عن اللي قبله ومفيش تكرار ورا بعض، ولما الشيوخ يخلصوا بنبدأ من الأول.
+    const reciter = reciters[reciterIndex % reciters.length];
+    console.log(`   🎙️ القارئ: ${reciter}`);
     const response = await axios.get(
-      `http://api.alquran.cloud/v1/ayah/${globalAyahNumber}/${randomReciter}`,
+      `http://api.alquran.cloud/v1/ayah/${globalAyahNumber}/${reciter}`,
     );
     const data = response.data.data;
     return {
@@ -50,7 +53,7 @@ async function getAyahData(globalAyahNumber, retries = 3) {
   } catch (error) {
     if (retries > 0) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      return await getAyahData(globalAyahNumber, retries - 1);
+      return await getAyahData(globalAyahNumber, reciterIndex, retries - 1);
     }
     throw error;
   }
@@ -59,19 +62,27 @@ async function getAyahData(globalAyahNumber, retries = 3) {
 // ==========================================
 // 2. اختيار فيديو طبيعي من مجلد videos
 // ==========================================
-async function getRandomNatureVideo(outputPath) {
+async function getRandomNatureVideo(outputPath, rotationIndex = 0) {
   console.log("1. جاري اختيار فيديو طبيعي...");
   const videosDir = path.join(__dirname, "videos");
   if (!fs.existsSync(videosDir)) fs.mkdirSync(videosDir);
 
+  // sort() عشان الترتيب يبقى ثابت (readdirSync مش مضمون الترتيب)، والفلتر مش حساس لحالة الحروف
   const files = fs
     .readdirSync(videosDir)
-    .filter((file) => file.endsWith(".mp4"));
+    .filter((file) => file.toLowerCase().endsWith(".mp4"))
+    .sort();
   if (files.length === 0)
     throw new Error('⚠️ مجلد "videos" فارغ! أرجو وضع فيديوهات بداخله.');
 
-  const randomVideo = files[Math.floor(Math.random() * files.length)];
-  fs.copyFileSync(path.join(videosDir, randomVideo), outputPath);
+  // التعديل: بدل Math.random (اللي ممكن يختار نفس الفيديو كذا يوم ورا بعض، خصوصاً
+  // لو عدد الفيديوهات قليل)، بنلف على الفيديوهات بالترتيب حسب رقم اليوم.
+  // كده كل يوم فيديو مختلف عن اللي قبله، ولما نخلص كلهم بنبدأ من الأول.
+  const chosen = files[rotationIndex % files.length];
+  console.log(
+    `   🎞️ الفيديو المختار: ${chosen} (من ${files.length} فيديو متاح)`,
+  );
+  fs.copyFileSync(path.join(videosDir, chosen), outputPath);
   return outputPath;
 }
 
@@ -442,7 +453,7 @@ async function uploadVideo(filePath) {
 // ==========================================
 // 6. تشغيل الدورة بالكامل
 // ==========================================
-async function runAutomation(currentAyahNumber) {
+async function runAutomation(currentAyahNumber, rotationIndex = 0) {
   const tempVideo = path.join(__dirname, "temp_nature.mp4");
   const ayahImage = path.join(__dirname, "ayah_overlay.png");
   const outroImage = path.join(__dirname, "outro_overlay.png");
@@ -450,10 +461,10 @@ async function runAutomation(currentAyahNumber) {
   const finalVideo = path.join(__dirname, "final_video.mp4");
 
   try {
-    const ayahInfo = await getAyahData(currentAyahNumber);
+    const ayahInfo = await getAyahData(currentAyahNumber, rotationIndex);
     if (!ayahInfo) return false;
 
-    await getRandomNatureVideo(tempVideo);
+    await getRandomNatureVideo(tempVideo, rotationIndex);
 
     const browser = await puppeteer.launch({
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
@@ -591,7 +602,7 @@ async function runDailyTask() {
   );
   console.log(`📖 الآية المختارة ترتيبها في المصحف: ${globalAyahNumber}`);
 
-  const success = await runAutomation(globalAyahNumber);
+  const success = await runAutomation(globalAyahNumber, currentIndex);
   if (success) {
     updateAyahIndex(currentIndex);
     console.log(`✅ تم إنجاز النشر، وحفظ المؤشر لليوم التالي بنجاح تام.`);
