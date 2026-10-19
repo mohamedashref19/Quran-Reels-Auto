@@ -213,7 +213,9 @@ async function runAutomation(currentAyahNumber) {
 
     await getRandomNatureVideo(tempVideo);
 
-    const browser = await puppeteer.launch();
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
     await generateAyahImage(ayahInfo, browser);
     await generateOutroImage(browser);
     await browser.close();
