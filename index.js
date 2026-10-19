@@ -70,30 +70,86 @@ async function generateAyahImage(ayahInfo, browser) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1080, height: 1920 });
 
+  // المنطقة الآمنة للنص: بنسيب مساحة فوق وتحت لأن واجهة انستجرام (اسم الحساب،
+  // الكابشن، الأزرار) بتغطي حوالي أول 250 بكسل وآخر 400 بكسل من الريل.
+  const SAFE_TOP = 250;
+  const SAFE_BOTTOM = 400;
+  const AVAILABLE_HEIGHT = 1920 - SAFE_TOP - SAFE_BOTTOM;
+  const MAX_FONT = 110; // حجم الخط للآيات القصيرة (نفس القديم)
+  const MIN_FONT = 30; // أقل حجم مسموح للآيات الطويلة جداً
+
+  // التعديل 1: خط "Amiri Quran" بدل "Amiri" العادي، لأنه الخط اللي فيه رموز
+  // الوقف والعلامات القرآنية (ۖ ۗ ۚ ۛ ...). الخط العادي مكانش فيها فكانت بتظهر مربعات.
+  // التعديل 2: كل الأحجام (اسم السورة، رقم الآية، الهوامش) مربوطة بمتغير --fs
+  // فبتصغر مع النص بنفس النسبة.
   const htmlContent = `
         <!DOCTYPE html>
         <html lang="ar" dir="rtl">
         <head>
             <meta charset="UTF-8">
             <style>
-                @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap');
+                @import url('https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Amiri:wght@700&display=swap');
+                :root { --fs: ${MAX_FONT}px; }
                 html, body { width: 1080px; height: 1920px; margin: 0; background: transparent !important; }
-                body { display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: 'Amiri', serif; color: #ffffff; text-shadow: 0 8px 30px rgba(0, 0, 0, 1), 0 3px 10px rgba(0, 0, 0, 1); }
-                .surah-name { font-size: 65px; color: #d4af37; margin-bottom: 40px; }
-                .ayah-text { font-size: 110px; line-height: 1.8; text-align: center; padding: 0 60px; font-weight: bold; }
-                .ayah-number { font-size: 55px; color: #d4af37; margin-top: 40px; }
+                body { position: relative; font-family: 'Amiri Quran', 'Amiri', serif; color: #ffffff; text-shadow: 0 8px 30px rgba(0, 0, 0, 1), 0 3px 10px rgba(0, 0, 0, 1); }
+                .safe-area { position: absolute; top: ${SAFE_TOP}px; left: 0; right: 0; height: ${AVAILABLE_HEIGHT}px; display: flex; justify-content: center; align-items: center; }
+                .content { width: 100%; box-sizing: border-box; padding: 0 60px; display: flex; flex-direction: column; align-items: center; }
+                .surah-name { font-family: 'Amiri', serif; font-weight: 700; font-size: min(65px, calc(var(--fs) * 0.65)); color: #d4af37; margin-bottom: calc(var(--fs) * 0.3); }
+                .ayah-text { font-size: var(--fs); line-height: 1.8; text-align: center; font-weight: normal; }
+                .ayah-number { font-family: 'Amiri', serif; font-weight: 700; font-size: min(55px, calc(var(--fs) * 0.55)); color: #d4af37; margin-top: calc(var(--fs) * 0.3); }
             </style>
         </head>
         <body>
-            <div class="surah-name">﴿ ${ayahInfo.surahName} ﴾</div>
-            <div class="ayah-text">${ayahInfo.text}</div>
-            <div class="ayah-number">﴿ ${ayahInfo.numberInSurah} ﴾</div>
+            <div class="safe-area">
+                <div class="content">
+                    <div class="surah-name">﴿ ${ayahInfo.surahName} ﴾</div>
+                    <div class="ayah-text">${ayahInfo.text}</div>
+                    <div class="ayah-number">﴿ ${ayahInfo.numberInSurah} ﴾</div>
+                </div>
+            </div>
         </body>
         </html>
     `;
   await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+
+  // التعديل 3: ضبط حجم الخط تلقائياً. بنجرب أكبر حجم، ولو الكتلة كلها (اسم السورة +
+  // الآية + الرقم) أطول من المساحة الآمنة بنعمل بحث ثنائي عن أكبر حجم يناسب.
+  const fit = await page.evaluate(
+    async (availH, maxFs, minFs) => {
+      await document.fonts.ready;
+      const content = document.querySelector(".content");
+      const root = document.documentElement;
+      const setFs = (fs) => root.style.setProperty("--fs", fs + "px");
+      const fits = () => content.getBoundingClientRect().height <= availH;
+
+      setFs(maxFs);
+      if (fits()) return { fs: maxFs, fits: true };
+
+      let lo = minFs;
+      let hi = maxFs;
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        setFs(mid);
+        if (fits()) lo = mid;
+        else hi = mid;
+      }
+      setFs(lo);
+      return { fs: lo, fits: fits() };
+    },
+    AVAILABLE_HEIGHT,
+    MAX_FONT,
+    MIN_FONT,
+  );
+  console.log(`   🔠 حجم خط الآية: ${fit.fs}px`);
+  if (!fit.fits) {
+    console.warn(
+      "   ⚠️ الآية طويلة جداً حتى على أصغر حجم خط، ممكن يتقص جزء منها.",
+    );
+  }
+
   const imagePath = path.join(__dirname, "ayah_overlay.png");
   await page.screenshot({ path: imagePath, type: "png", omitBackground: true });
+  await page.close();
   return imagePath;
 }
 
