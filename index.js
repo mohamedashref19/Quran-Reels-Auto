@@ -134,7 +134,10 @@ async function generateAyahImage(ayahInfo, browser) {
         </body>
         </html>
     `;
-  await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+  await page.setContent(htmlContent, {
+    waitUntil: "networkidle2",
+    timeout: 60000,
+  });
 
   // التعديل 3: ضبط حجم الخط تلقائياً. بنجرب أكبر حجم، ولو الكتلة كلها (اسم السورة +
   // الآية + الرقم) أطول من المساحة الآمنة بنعمل بحث ثنائي عن أكبر حجم يناسب.
@@ -206,7 +209,10 @@ async function generateOutroImage(browser) {
         </body>
         </html>
     `;
-  await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+  await page.setContent(htmlContent, {
+    waitUntil: "networkidle2",
+    timeout: 60000,
+  });
   const imagePath = path.join(__dirname, "outro_overlay.png");
   await page.screenshot({ path: imagePath, type: "png", omitBackground: true });
   return imagePath;
@@ -623,7 +629,7 @@ async function runDailyTask() {
 }
 
 // التشغيل المباشر
-runDailyTask();
+//runDailyTask();
 
 // ==========================================
 // 8. تحويل السكربت إلى سيرفر ويب (لاستقبال أمر التشغيل بدقة)
