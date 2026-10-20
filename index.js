@@ -624,3 +624,25 @@ async function runDailyTask() {
 
 // التشغيل المباشر
 runDailyTask();
+
+// ==========================================
+// 8. تحويل السكربت إلى سيرفر ويب (لاستقبال أمر التشغيل بدقة)
+// ==========================================
+const express = require("express");
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("Quran Automation Server is Running!");
+});
+
+// هذا هو الرابط السري الذي سيشغل الأتمتة (لتجنب تشغيله من أشخاص غُرباء)
+app.get("/trigger-publish-secret-123", async (req, res) => {
+  res.send("تم استلام الطلب.. جاري بدء دورة النشر في الخلفية!");
+  // تشغيل الدورة في الخلفية دون جعل المنبه ينتظر
+  await runDailyTask();
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 السيرفر يعمل ومستعد لتلقي الأوامر على البورت ${PORT}`);
+});
