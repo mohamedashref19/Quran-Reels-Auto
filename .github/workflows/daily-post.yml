@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "37 11 * * *" # التشغيل يومياً الساعة 12:00 بتوقيت UTC
   workflow_dispatch: # زر لتشغيل السكربت يدوياً للتجربة
+  repository_dispatch:
+    types: [trigger-quran-reels]
 
 jobs:
   build_and_post:
