@@ -282,7 +282,12 @@ async function createFinalMedia(
       .input(outroImage)
       .input(audioInput)
       .complexFilter([
-        "[0:v]eq=brightness=-0.3:contrast=1.1[bg]",
+        // التعديل: توحيد مقاس الفيديو الخلفي لـ 1080x1920 قبل أي حاجة. الصورتين اللي فوقه
+        // (الآية والنهاية) مقاسهم 1080x1920 ومتحطين عند 0:0، فلو الفيديو الخلفي أصغر
+        // (مثلاً 720x1280) أو مقاسه مختلف، الفيديو الناتج بياخد مقاسه هو والصورة بتتقص
+        // من اليمين والتحت (وده اللي كان بيحصل). scale مع increase بيكبّر لحد ما يغطي
+        // الإطار، وcrop بيقص الزيادة من النص، وsetsar/fps بيوحدوا باقي الخصائص.
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,eq=brightness=-0.3:contrast=1.1[bg]",
         `[bg][1:v]overlay=0:0:enable='between(t,0,${safeDuration})'[v1]`,
         `[v1][2:v]overlay=0:0:enable='between(t,${safeDuration},${totalDuration})'[outv]`,
       ])
