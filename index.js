@@ -240,6 +240,19 @@ function getAudioDuration(audioPath) {
   });
 }
 
+// مقاس أول stream فيديو في الملف (عشان نطبعه في اللوج ونعرف لو الخلفية مقاسها مختلف)
+function getVideoSize(videoPath) {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) return resolve(null);
+      const v = (metadata.streams || []).find(
+        (st) => st.codec_type === "video",
+      );
+      resolve(v ? { width: v.width, height: v.height } : null);
+    });
+  });
+}
+
 // ==========================================
 // 5. المونتاج الذكي والمزامنة (النسخة المستقرة على السيرفرات)
 // ==========================================
@@ -262,6 +275,13 @@ async function createFinalMedia(
   // وبيقطع الفيديو عند نهاية أول لفة)، بنكرر الفيديو بقائمة concat.
   // كده مفيش seek خالص والفيديو بيكمل لحد ما الصوت يخلص.
   const videoDuration = await getAudioDuration(videoInput);
+  const bgSize = await getVideoSize(videoInput);
+  if (bgSize) {
+    const same = bgSize.width === 1080 && bgSize.height === 1920;
+    console.log(
+      `📐 مقاس الفيديو الخلفي: ${bgSize.width}x${bgSize.height}${same ? " (مظبوط)" : " → هيتحول تلقائياً لـ 1080x1920"}`,
+    );
+  }
   const loops = Math.max(
     1,
     Math.ceil(parseFloat(totalDuration) / videoDuration),
@@ -495,6 +515,18 @@ async function runAutomation(currentAyahNumber, rotationIndex = 0) {
       duration,
       finalVideo,
     );
+
+    // فحص أمان: لو الفيديو الناتج مقاسه مش 1080x1920 (يعني الصورة اتقصت) منرفعوش
+    // ونوقف التشغيل بخطأ واضح بدل ما ينزل ريل بايظ على انستجرام.
+    const outSize = await getVideoSize(finalVideo);
+    console.log(
+      `📐 مقاس الفيديو النهائي: ${outSize ? `${outSize.width}x${outSize.height}` : "غير معروف"}`,
+    );
+    if (!outSize || outSize.width !== 1080 || outSize.height !== 1920) {
+      throw new Error(
+        `مقاس الفيديو النهائي غير صحيح (${outSize ? `${outSize.width}x${outSize.height}` : "؟"}). المفروض 1080x1920.`,
+      );
+    }
 
     console.log("6. جاري رفع الفيديو للحصول على رابط مباشر...");
     const directUrl = await uploadVideo(finalVideo);
