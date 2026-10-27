@@ -22,11 +22,31 @@ jobs:
       - name: Install System Dependencies (FFmpeg)
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
+      # إعادة المحاولة تلقائياً (لحد 5 مرات) لأن تحميل الملفات من الإنترنت ممكن يفشل
+      # بخطأ مؤقت (زي 504 من GitHub وقت تحميل ffmpeg-static)
       - name: Install NPM Packages
-        run: npm install
+        run: |
+          retry() {
+            for i in 1 2 3 4 5; do
+              "$@" && return 0
+              echo "⚠️ المحاولة $i فشلت، هنعيد بعد 30 ثانية..."
+              sleep 30
+            done
+            return 1
+          }
+          retry npm install
 
       - name: Install Puppeteer Browsers
-        run: npx puppeteer browsers install chrome
+        run: |
+          retry() {
+            for i in 1 2 3 4 5; do
+              "$@" && return 0
+              echo "⚠️ المحاولة $i فشلت، هنعيد بعد 30 ثانية..."
+              sleep 30
+            done
+            return 1
+          }
+          retry npx puppeteer browsers install chrome
 
       - name: Run Automation Script
         env:
